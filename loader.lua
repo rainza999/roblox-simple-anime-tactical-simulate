@@ -1,0 +1,1 @@
+loadstring(game:HttpGet("https://raw.githubusercontent.com/USERNAME/roblox-simple-anime-tactical-simulate/main/simple_autoraid.lua?t=" .. os.time()))()
