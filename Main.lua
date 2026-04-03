@@ -1,10 +1,13 @@
 warn("### RAID + BOSS MAIN BUILD ###")
 
-local State = loadstring(game:HttpGet("URL_TO/State.lua"))()
-local Scheduler = loadstring(game:HttpGet("URL_TO/Scheduler.lua"))()
-local UI = loadstring(game:HttpGet("URL_TO/UI.lua"))()
-local AutoRaid = loadstring(game:HttpGet("URL_TO/AutoRaid.lua"))()
-local AutoBoss = loadstring(game:HttpGet("URL_TO/AutoBoss.lua"))()
+local BASE = "https://raw.githubusercontent.com/rainza999/roblox-simple-anime-tactical-simulate/main/"
+local ts = tostring(os.time())
+
+local State = loadstring(game:HttpGet(BASE .. "State.lua?t=" .. ts))()
+local Scheduler = loadstring(game:HttpGet(BASE .. "Scheduler.lua?t=" .. ts))()
+local UI = loadstring(game:HttpGet(BASE .. "UI.lua?t=" .. ts))()
+local AutoRaid = loadstring(game:HttpGet(BASE .. "AutoRaid.lua?t=" .. ts))()
+local AutoBoss = loadstring(game:HttpGet(BASE .. "AutoBoss.lua?t=" .. ts))()
 
 UI.init(State)
 
