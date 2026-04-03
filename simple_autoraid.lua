@@ -1,4 +1,4 @@
-warn("### SIMPLE AUTORAID ONE FILE BUILD ###")
+warn("### SIMPLE AUTORAID ONE FILE BUILD V1 ###")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Players = game:GetService("Players")
 local Workspace = game:GetService("Workspace")
