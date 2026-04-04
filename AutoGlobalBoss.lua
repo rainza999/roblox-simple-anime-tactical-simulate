@@ -151,6 +151,10 @@ local function waitForPortalPrompt(timeout)
     return nil
 end
 
+local getBossModel
+local waitForBossSpawn
+local waitUntilGlobalBossGone
+
 local function tpToPortalAndEnter(prompt)
     if not prompt then
         return false
@@ -226,7 +230,7 @@ local function waitForBoss(timeout)
     return nil
 end
 
-local function waitForBossSpawn(timeout)
+waitForBossSpawn = function(timeout)
     local t = tick()
     while tick() - t < (timeout or 10) do
         local bossFolder = findGlobalBossFolder()
@@ -241,7 +245,7 @@ local function waitForBossSpawn(timeout)
     return nil
 end
 
-local function waitUntilGlobalBossGone(timeout)
+waitUntilGlobalBossGone = function(timeout)
     local t = tick()
     while tick() - t < (timeout or 10) do
         if not findGlobalBossFolder() then
@@ -320,7 +324,7 @@ local function ensurePortalThenEnter(State)
     return openPortalByNpcAndEnter(State)
 end
 
-local function getBossModel(folder)
+getBossModel = function(folder)
     if not folder then
         return nil, nil, nil
     end
@@ -524,7 +528,7 @@ function AutoGlobalBoss.runOnce(State)
     end
 
     if ok then
-        waitUntilGlobalBossGone(8) -- 🔥 รอ boss folder หายก่อน
+        waitUntilGlobalBossGone(8)
         task.wait(AFTER_BOSS_DEAD_DELAY)
     end
 
