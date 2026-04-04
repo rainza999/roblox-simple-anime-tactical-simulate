@@ -166,22 +166,29 @@ local function tpToPortalAndEnter(prompt)
     local portalPos = attachment.WorldPosition
 
     rootPart.CFrame = CFrame.new(portalPos + Vector3.new(0, 2, 3), portalPos)
-    task.wait(0.35)
+    task.wait(0.8)
 
     rootPart.CFrame = CFrame.new(portalPos + Vector3.new(0, 2, 2), portalPos)
-    task.wait(0.25)
+    task.wait(1)
 
     pcall(function()
         fireproximityprompt(prompt)
     end)
 
-    task.wait(0.3)
+    task.wait(0.7)
     pressE()
     -- 🔥 เพิ่มตรงนี้
-    task.wait(3) -- รอ map init ก่อน
-    print("wait 3 seconds after pressing E to allow map to load")
-    log("tried entering portal:", prompt:GetFullName())
-    return true
+    task.wait(2) -- รอ map init ก่อน
+    print("wait 2 seconds after pressing E to allow map to load")
+    local bossFolder = waitForBossSpawn(10)
+    if bossFolder then
+        log("boss detected after enter:", bossFolder.Name)
+        log("tried entering portal:", prompt:GetFullName())
+        return true
+    end
+
+    warn("[AUTO-GLOBAL-BOSS] boss not found after enter timeout")
+    return false
 end
 
 local function findGlobalBossFolder()
@@ -219,6 +226,21 @@ local function waitForBoss(timeout)
     return nil
 end
 
+local function waitForBossSpawn(timeout)
+    local t = tick()
+    while tick() - t < (timeout or 10) do
+        local bossFolder = findGlobalBossFolder()
+        if bossFolder then
+            local model, humanoid = getBossModel(bossFolder)
+            if humanoid and humanoid.Health > 0 then
+                return bossFolder
+            end
+        end
+        task.wait(0.2)
+    end
+    return nil
+end
+
 local function tryEnterExistingPortal()
     local prompt = getPortalPrompt()
     if not prompt then
@@ -226,7 +248,11 @@ local function tryEnterExistingPortal()
     end
 
     log("portal already exists, entering without talking NPC")
-    tpToPortalAndEnter(prompt)
+    -- tpToPortalAndEnter(prompt)
+    local entered = tpToPortalAndEnter(prompt)
+    if not entered then
+        return false, nil
+    end
 
     local bossFolder = waitForBoss(ENTER_CHECK_TIMEOUT)
     if bossFolder then
@@ -257,7 +283,11 @@ local function openPortalByNpcAndEnter(State)
         return false, nil
     end
 
-    tpToPortalAndEnter(prompt)
+    -- tpToPortalAndEnter(prompt)
+    local entered = tpToPortalAndEnter(prompt)
+    if not entered then
+        return false, nil
+    end
 
     local bossFolder = waitForBoss(ENTER_CHECK_TIMEOUT)
     if bossFolder then
