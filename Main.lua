@@ -1,4 +1,4 @@
-warn("### RAID + BOSS MAIN BUILD V3 ###")
+warn("### RAID + BOSS MAIN BUILD V4 ###")
 
 local BASE = "https://raw.githubusercontent.com/rainza999/roblox-simple-anime-tactical-simulate/main/"
 local ts = tostring(os.time())
