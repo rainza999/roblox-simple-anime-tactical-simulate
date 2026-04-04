@@ -13,7 +13,7 @@ local PORTAL_WAIT_TIMEOUT = 8
 local ENTER_CHECK_TIMEOUT = 10
 local BOSS_WAIT_TIMEOUT = 12
 local AFTER_ENTER_DELAY = 3
-local AFTER_BOSS_DEAD_DELAY = 4
+local AFTER_BOSS_DEAD_DELAY = 8
 
 local function log(...)
     warn("[AUTO-GLOBAL-BOSS]", ...)
@@ -239,6 +239,17 @@ local function waitForBossSpawn(timeout)
         task.wait(0.2)
     end
     return nil
+end
+
+local function waitUntilGlobalBossGone(timeout)
+    local t = tick()
+    while tick() - t < (timeout or 10) do
+        if not findGlobalBossFolder() then
+            return true
+        end
+        task.wait(0.2)
+    end
+    return false
 end
 
 local function tryEnterExistingPortal()
@@ -513,6 +524,7 @@ function AutoGlobalBoss.runOnce(State)
     end
 
     if ok then
+        waitUntilGlobalBossGone(8) -- 🔥 รอ boss folder หายก่อน
         task.wait(AFTER_BOSS_DEAD_DELAY)
     end
 
