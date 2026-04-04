@@ -430,33 +430,47 @@ local function attackBoss(bossFolder)
 
     log("found boss folder:", bossFolder.Name)
 
+    local model, humanoid, bossRoot = getBossModel(bossFolder)
+    if not model or not humanoid or not bossRoot then
+        warn("[AUTO-GLOBAL-BOSS] Boss model not found")
+        return false
+    end
+
+    log("locked first boss model:", model.Name)
+
     task.wait(AFTER_ENTER_DELAY)
     refreshAutoAttack()
 
     while true do
         if not bossFolder or not bossFolder.Parent then
             log("boss folder removed")
-            break
+            return true
         end
 
-        local model, humanoid, bossRoot = getBossModel(bossFolder)
-        if not model or not humanoid or not bossRoot then
-            log("boss model/root missing")
-            task.wait(0.1)
-            continue
+        if not model or not model.Parent then
+            log("locked boss model removed -> treat as finished")
+            return true
+        end
+
+        if not humanoid or not humanoid.Parent then
+            log("locked boss humanoid removed -> treat as finished")
+            return true
         end
 
         if humanoid.Health <= 0 then
-            log("boss dead")
-            break
+            log("locked boss dead -> finish immediately")
+            return true
+        end
+
+        if not bossRoot or not bossRoot.Parent then
+            log("locked boss root removed -> treat as finished")
+            return true
         end
 
         refreshAutoAttack()
         teleportToBossAndHold(bossRoot)
         task.wait(0.02)
     end
-
-    return true
 end
 
 local function shouldStayInBirdcageBurnMode(State, amount)
@@ -484,6 +498,14 @@ function AutoGlobalBoss.shouldForceGlobalBoss(State)
         return false
     end
 
+    if State.runtime and State.runtime.globalBossBusy then
+        return false
+    end
+
+    if State.runtime and State.runtime.globalBossFinishing then
+        return false
+    end
+
     if AutoGlobalBoss.hasOpenPortal() then
         return true
     end
@@ -499,6 +521,14 @@ end
 
 function AutoGlobalBoss.shouldInterruptRaid(State)
     if not State or not State.toggles or not State.toggles.globalBosses then
+        return false
+    end
+
+    if State.runtime and State.runtime.globalBossBusy then
+        return false
+    end
+
+    if State.runtime and State.runtime.globalBossFinishing then
         return false
     end
 
@@ -530,6 +560,7 @@ function AutoGlobalBoss.runOnce(State)
 
     if State.runtime then
         State.runtime.globalBossBusy = true
+        State.runtime.globalBossFinishing = false
     end
 
     pushBirdcageToState(State, "before_global_run")
@@ -577,20 +608,21 @@ function AutoGlobalBoss.runOnce(State)
     end
 
     if ok then
-        waitUntilGlobalBossGone(8)
-        task.wait(AFTER_BOSS_DEAD_DELAY)
+        if State and State.runtime then
+            State.runtime.globalBossFinishing = true
+        end
+        log("boss finished, waiting for dungeon exit")
+        task.wait(6)
     end
 
     pushBirdcageToState(State, "after_global_run")
 
-    if State.runtime then
+    if State and State.runtime then
         State.runtime.globalBossBusy = false
+        State.runtime.globalBossFinishing = false
     end
 
-    if State.onGlobalBossFinished then
-        pcall(State.onGlobalBossFinished, State.runtime and State.runtime.domainBirdcageCount or 0, reason)
-    end
-
+    log("global boss flow fully ended")
     return ok, reason
 end
 
