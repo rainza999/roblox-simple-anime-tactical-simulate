@@ -234,7 +234,7 @@ waitForBossSpawn = function(timeout)
     local t = tick()
     while tick() - t < (timeout or 10) do
         local bossFolder = findGlobalBossFolder()
-        if bossFolder then
+        if bossFolder and bossFolder.Parent then
             local model, humanoid = getBossModel(bossFolder)
             if humanoid and humanoid.Health > 0 then
                 return bossFolder
@@ -361,25 +361,74 @@ local function teleportToBossAndHold(bossRoot)
     return true
 end
 
+-- local function attackBoss(bossFolder)
+--     if not bossFolder then
+--         bossFolder = waitForBoss(BOSS_WAIT_TIMEOUT)
+--     end
+
+--     if not bossFolder then
+--         warn("[AUTO-GLOBAL-BOSS] GlobalBosses not found")
+--         return false
+--     end
+
+--     log("found boss folder:", bossFolder.Name)
+
+--     local model, humanoid, bossRoot = getBossModel(bossFolder)
+--     if not model or not humanoid or not bossRoot then
+--         warn("[AUTO-GLOBAL-BOSS] Boss model not found")
+--         return false
+--     end
+
+--     log("found boss model:", model.Name)
+
+--     task.wait(AFTER_ENTER_DELAY)
+--     refreshAutoAttack()
+
+--     while true do
+--         if not bossFolder or not bossFolder.Parent then
+--             log("boss folder removed")
+--             break
+--         end
+
+--         if not model or not model.Parent then
+--             log("boss model removed")
+--             break
+--         end
+
+--         if not humanoid or not humanoid.Parent then
+--             log("boss humanoid removed")
+--             break
+--         end
+
+--         if humanoid.Health <= 0 then
+--             log("boss dead")
+--             break
+--         end
+
+--         if not bossRoot or not bossRoot.Parent then
+--             log("boss root removed")
+--             break
+--         end
+
+--         refreshAutoAttack()
+--         teleportToBossAndHold(bossRoot)
+--         task.wait(0.02)
+--     end
+
+--     return true
+-- end
+
 local function attackBoss(bossFolder)
     if not bossFolder then
         bossFolder = waitForBoss(BOSS_WAIT_TIMEOUT)
     end
 
-    if not bossFolder then
+    if not bossFolder or not bossFolder.Parent then
         warn("[AUTO-GLOBAL-BOSS] GlobalBosses not found")
         return false
     end
 
     log("found boss folder:", bossFolder.Name)
-
-    local model, humanoid, bossRoot = getBossModel(bossFolder)
-    if not model or not humanoid or not bossRoot then
-        warn("[AUTO-GLOBAL-BOSS] Boss model not found")
-        return false
-    end
-
-    log("found boss model:", model.Name)
 
     task.wait(AFTER_ENTER_DELAY)
     refreshAutoAttack()
@@ -390,23 +439,15 @@ local function attackBoss(bossFolder)
             break
         end
 
-        if not model or not model.Parent then
-            log("boss model removed")
-            break
-        end
-
-        if not humanoid or not humanoid.Parent then
-            log("boss humanoid removed")
-            break
+        local model, humanoid, bossRoot = getBossModel(bossFolder)
+        if not model or not humanoid or not bossRoot then
+            log("boss model/root missing")
+            task.wait(0.1)
+            continue
         end
 
         if humanoid.Health <= 0 then
             log("boss dead")
-            break
-        end
-
-        if not bossRoot or not bossRoot.Parent then
-            log("boss root removed")
             break
         end
 
@@ -474,6 +515,14 @@ function AutoGlobalBoss.shouldInterruptRaid(State)
     return shouldStayInBirdcageBurnMode(State, amount)
 end
 
+local function getFreshBoss()
+    local boss = findGlobalBossFolder()
+    if boss and boss.Parent then
+        return boss
+    end
+    return nil
+end
+
 function AutoGlobalBoss.runOnce(State)
     if not State or not State.toggles or not State.toggles.globalBosses then
         return false, "global_disabled"
@@ -488,7 +537,7 @@ function AutoGlobalBoss.runOnce(State)
     local ok = false
     local reason = "no_action"
 
-    local activeBoss = findGlobalBossFolder()
+    local activeBoss = getFreshBoss()
     if activeBoss then
         log("already in dungeon / boss exists, attacking")
         ok = attackBoss(activeBoss)
