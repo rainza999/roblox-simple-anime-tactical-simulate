@@ -177,7 +177,9 @@ local function tpToPortalAndEnter(prompt)
 
     task.wait(0.3)
     pressE()
-
+    -- 🔥 เพิ่มตรงนี้
+    task.wait(3) -- รอ map init ก่อน
+    print("wait 3 seconds after pressing E to allow map to load")
     log("tried entering portal:", prompt:GetFullName())
     return true
 end
