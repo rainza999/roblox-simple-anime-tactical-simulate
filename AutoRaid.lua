@@ -18,6 +18,18 @@ local function log(...)
     warn("[AUTO-RAID]", ...)
 end
 
+local function resolvePodByPlayer()
+    local name = LocalPlayer.Name
+
+    if name == "l2ainl3lack" then
+        return "Pod_01"
+    elseif name == "RainFatherReal" then
+        return "Pod_02"
+    else
+        return "Pod_03"
+    end
+end
+
 local function getCharacter()
     return LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
 end
@@ -71,6 +83,8 @@ end
 
 local RaidPods = {
     Pod_01 = Workspace:WaitForChild("Raids_Entering"):WaitForChild("Pod_01"),
+    Pod_02 = Workspace:WaitForChild("Raids_Entering"):WaitForChild("Pod_02"),
+    Pod_03 = Workspace:WaitForChild("Raids_Entering"):WaitForChild("Pod_03"),
 }
 
 local RaidMapAlias = {
@@ -203,6 +217,8 @@ end
 local function enterRaid(State)
     goToChallengesLobby()
     task.wait(1.2)
+
+    State.raid.podName = resolvePodByPlayer()
 
     teleportToRaidPod(State)
     task.wait(0.5)

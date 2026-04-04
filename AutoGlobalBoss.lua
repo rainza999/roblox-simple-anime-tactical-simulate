@@ -371,6 +371,26 @@ local function attackBoss(bossFolder)
     return true
 end
 
+local function shouldStayInBirdcageBurnMode(State, amount)
+    State.runtime = State.runtime or {}
+
+    if State.runtime.globalBossBurnMode == nil then
+        State.runtime.globalBossBurnMode = false
+    end
+
+    -- เริ่ม burn mode ตอนครบ 10
+    if not State.runtime.globalBossBurnMode and amount >= 10 then
+        State.runtime.globalBossBurnMode = true
+    end
+
+    -- หยุด burn mode ตอนเหลือ 1 หรือน้อยกว่า
+    if State.runtime.globalBossBurnMode and amount <= 1 then
+        State.runtime.globalBossBurnMode = false
+    end
+
+    return State.runtime.globalBossBurnMode
+end
+
 function AutoGlobalBoss.shouldForceGlobalBoss(State)
     if not State or not State.toggles or not State.toggles.globalBosses then
         return false
@@ -380,9 +400,22 @@ function AutoGlobalBoss.shouldForceGlobalBoss(State)
         return true
     end
 
-    local threshold = 10
-    if State.config and State.config.globalBossFocusAt then
-        threshold = State.config.globalBossFocusAt
+    local amount = AutoGlobalBoss.getDomainBirdcageAmount()
+
+    if State.runtime then
+        State.runtime.domainBirdcageCount = amount
+    end
+
+    return shouldStayInBirdcageBurnMode(State, amount)
+end
+
+function AutoGlobalBoss.shouldInterruptRaid(State)
+    if not State or not State.toggles or not State.toggles.globalBosses then
+        return false
+    end
+
+    if AutoGlobalBoss.hasOpenPortal() then
+        return true
     end
 
     local amount = AutoGlobalBoss.getDomainBirdcageAmount()
@@ -391,15 +424,7 @@ function AutoGlobalBoss.shouldForceGlobalBoss(State)
         State.runtime.domainBirdcageCount = amount
     end
 
-    return amount >= threshold
-end
-
-function AutoGlobalBoss.shouldInterruptRaid(State)
-    if not State or not State.toggles or not State.toggles.globalBosses then
-        return false
-    end
-
-    return AutoGlobalBoss.hasOpenPortal()
+    return shouldStayInBirdcageBurnMode(State, amount)
 end
 
 function AutoGlobalBoss.runOnce(State)
