@@ -305,16 +305,42 @@ local function teleportToEnemyAndHold(State, target)
     return true
 end
 
-local function waitForFirstEnemies(State, timeout)
-    local started = tick()
-    while tick() - started < (timeout or cfg(State).firstEnemyTimeout) do
-        local enemies = getEnemies()
-        if #enemies > 0 then
+local function shouldAbortForGlobalBoss(State)
+    if not State then
+        return false
+    end
+
+    if not State.toggles or not State.toggles.globalBosses then
+        return false
+    end
+
+    if type(State.shouldInterruptRaidForGlobalBoss) == "function" then
+        local ok, result = pcall(State.shouldInterruptRaidForGlobalBoss)
+        if ok and result then
             return true
         end
-        task.wait(0.25)
     end
+
     return false
+end
+
+local function waitForFirstEnemies(State, timeout)
+ local started = tick()
+
+ while tick() - started < (timeout or cfg(State).firstEnemyTimeout) do
+  if shouldAbortForGlobalBoss(State) then
+   return false, "global_boss_interrupt"
+  end
+
+  local enemies = getEnemies()
+  if #enemies > 0 then
+   return true, nil
+  end
+
+  task.wait(0.25)
+ end
+
+ return false, "first_enemy_timeout"
 end
 
 local function getServerEnemyHealthByName(enemyName)
@@ -333,31 +359,41 @@ local function getServerEnemyHealthByName(enemyName)
 end
 
 local function waitForNextWaveOrDone(State)
+    if shouldAbortForGlobalBoss(State) then
+        return false, "global_boss_interrupt"
+    end
     local started = tick()
     while tick() - started < (cfg(State).nextWaveWait or 3) do
         refreshAutoAttack(State)
 
         if #getEnemies() > 0 then
-            return false
+            return false, nil
         end
 
         task.wait(cfg(State).nextWavePoll or 0.1)
     end
 
-    return true
+    return true, nil
 end
 
 local function clearAllEnemies(State)
     local currentTarget = nil
 
     while true do
+        if shouldAbortForGlobalBoss(State) then
+            return false, "global_boss_interrupt"
+        end
         refreshAutoAttack(State)
 
         local enemies = getEnemies()
         if #enemies == 0 then
-            local finished = waitForNextWaveOrDone(State)
+            local finished, reason = waitForNextWaveOrDone(State)
+            if reason == "global_boss_interrupt" then
+                return false, reason
+            end
+
             if finished then
-                return true
+                return true, nil
             else
                 currentTarget = nil
             end
@@ -487,24 +523,52 @@ end
 function AutoRaid.runOnce(State)
     State.runtime.raidBusy = true
 
+    if shouldAbortForGlobalBoss(State) then
+        State.runtime.raidBusy = false
+        return false, "global_boss_interrupt"
+    end
+
     if not AutoRaid.isInRaid() then
         enterRaid(State)
+
         local ok = waitUntilInRaid(State, cfg(State).enterRaidTimeout)
         if not ok then
             State.runtime.raidBusy = false
-            return false
+        return false, "enter_raid_failed"
         end
     end
 
-    waitForFirstEnemies(State, cfg(State).firstEnemyTimeout)
-    clearAllEnemies(State)
+    local hasEnemies, firstEnemyReason = waitForFirstEnemies(State, cfg(State).firstEnemyTimeout)
+    if not hasEnemies and firstEnemyReason == "global_boss_interrupt" then
+        State.runtime.raidBusy = false
+        return false, "global_boss_interrupt"
+    end
+
+    local cleared, clearReason = clearAllEnemies(State)
+    if not cleared and clearReason == "global_boss_interrupt" then
+        State.runtime.raidBusy = false
+        return false, "global_boss_interrupt"
+    end
+
+    if shouldAbortForGlobalBoss(State) then
+        State.runtime.raidBusy = false
+        return false, "global_boss_interrupt"
+    end
+
     openAllChestsDirect()
+
     task.wait(0.5)
+
+    if shouldAbortForGlobalBoss(State) then
+        State.runtime.raidBusy = false
+        return false, "global_boss_interrupt"
+    end
+
     usePortalGate()
     task.wait(1.5)
 
     State.runtime.raidBusy = false
-    return true
+    return true, nil
 end
 
 return AutoRaid

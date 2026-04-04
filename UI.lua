@@ -2,7 +2,7 @@ local Players = game:GetService("Players")
 local LocalPlayer = Players.LocalPlayer
 
 local UI = {}
-
+local domainBirdcageLabel
 local function makeToggle(parent, text, defaultValue, onChanged, order)
     local row = Instance.new("Frame")
     row.Name = text .. "_Row"
@@ -49,14 +49,21 @@ local function makeToggle(parent, text, defaultValue, onChanged, order)
 end
 
 function UI.init(State)
+    local playerGui = LocalPlayer:WaitForChild("PlayerGui")
+
+    local oldGui = playerGui:FindFirstChild("RaidBossControllerUI")
+    if oldGui then
+        oldGui:Destroy()
+    end
+
     local gui = Instance.new("ScreenGui")
     gui.Name = "RaidBossControllerUI"
     gui.ResetOnSpawn = false
-    gui.Parent = LocalPlayer:WaitForChild("PlayerGui")
+    gui.Parent = playerGui
 
     local frame = Instance.new("Frame")
     frame.Name = "Main"
-    frame.Size = UDim2.new(0, 300, 0, 170)
+    frame.Size = UDim2.new(0, 300, 0, 240)
     frame.Position = UDim2.new(0, 20, 0, 120)
     frame.BackgroundColor3 = Color3.fromRGB(30, 30, 35)
     frame.BorderSizePixel = 0
@@ -76,12 +83,30 @@ function UI.init(State)
     end, 1)
 
     makeToggle(frame, "BossFight", State.toggles.bossFight, function(v)
-        State.toggles.bossFight = v
+    State.toggles.bossFight = v
     end, 2)
 
+    makeToggle(frame, "GlobalBosses", State.toggles.globalBosses, function(v)
+    State.toggles.globalBosses = v
+    end, 3)
+
+    domainBirdcageLabel = Instance.new("TextLabel")
+    domainBirdcageLabel.Name = "DomainBirdcageLabel"
+    domainBirdcageLabel.Size = UDim2.new(1, -12, 0, 24)
+    domainBirdcageLabel.Position = UDim2.new(0, 6, 0, 122)
+    domainBirdcageLabel.BackgroundTransparency = 1
+    domainBirdcageLabel.TextWrapped = false
+    domainBirdcageLabel.TextXAlignment = Enum.TextXAlignment.Left
+    domainBirdcageLabel.TextYAlignment = Enum.TextYAlignment.Center
+    domainBirdcageLabel.Font = Enum.Font.SourceSansBold
+    domainBirdcageLabel.TextSize = 18
+    domainBirdcageLabel.TextColor3 = Color3.fromRGB(255, 230, 120)
+    domainBirdcageLabel.Text = "DomainBirdcage: " .. tostring(State.runtime.domainBirdcageCount or 0)
+    domainBirdcageLabel.Parent = frame
+
     local info = Instance.new("TextLabel")
-    info.Size = UDim2.new(1, -12, 0, 46)
-    info.Position = UDim2.new(0, 6, 0, 110)
+    info.Size = UDim2.new(1, -12, 0, 72)
+    info.Position = UDim2.new(0, 6, 0, 150)
     info.BackgroundTransparency = 1
     info.TextWrapped = true
     info.TextXAlignment = Enum.TextXAlignment.Left
@@ -89,10 +114,16 @@ function UI.init(State)
     info.Font = Enum.Font.SourceSans
     info.TextSize = 16
     info.TextColor3 = Color3.fromRGB(220,220,220)
-    info.Text = "Priority: Raids ก่อน\nถ้า raid จบแล้วอยู่ช่วง boss window จะไป BossFight"
+    info.Text = "Priority:\n1) GlobalBoss portal มา -> ทิ้ง raid ไปทันที\n2) ถ้า DomainBirdcage >= 10 -> ฟาร์ม GlobalBoss จนเหลือ 0\n3) ที่เหลือค่อยวิ่ง Raid / BossFight"
     info.Parent = frame
 
     return gui
+end
+
+function UI.updateDomainBirdcage(count)
+ if domainBirdcageLabel then
+  domainBirdcageLabel.Text = "DomainBirdcage: " .. tostring(count or 0)
+ end
 end
 
 return UI

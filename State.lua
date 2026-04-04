@@ -4,6 +4,7 @@ local State = {
     toggles = {
         raids = true,
         bossFight = false,
+        globalBosses = true,
     },
 
     raid = {
@@ -24,13 +25,19 @@ local State = {
         chestWaitTimeout = 10,
         nextWaveWait = 3,
         nextWavePoll = 0.1,
+
+        globalBossFocusAt = 10,
     },
 
     runtime = {
         lastAutoAttackAt = 0,
         bossBusy = false,
         raidBusy = false,
-        lastBossWindowHandled = nil, -- กันยิงซ้ำใน window เดียว
+
+        globalBossBusy = false,
+        domainBirdcageCount = 0,
+
+        lastBossWindowHandled = nil,
     }
 }
 
