@@ -16,6 +16,12 @@ local AFTER_ENTER_DELAY = 5
 local AFTER_BOSS_DEAD_DELAY = 10
 local POST_GLOBAL_COOLDOWN = 12
 
+local ATTACK_LOOP_INTERVAL = 0.03
+local FIRST_BOSS_KILL_CONFIRM = 1.2
+local WAIT_AFTER_FIRST_BOSS_DEAD = 8
+local GLOBAL_RUN_TIMEOUT = 90
+local MAX_IDLE_WITHOUT_BOSS = 12
+
 local function log(...)
     warn("[AUTO-GLOBAL-BOSS]", ...)
 end
@@ -214,7 +220,7 @@ local function findGlobalBossFolder()
     end
 
     for _, obj in ipairs(server:GetChildren()) do
-        if obj.Name:match("^GlobalBosses") then
+        if obj.Name:match("^GlobalBosses") and obj.Parent == server then
             return obj
         end
     end
@@ -342,7 +348,7 @@ getBossModel = function(folder)
     end
 
     for _, v in ipairs(folder:GetDescendants()) do
-        if v:IsA("Humanoid") then
+        if v:IsA("Humanoid") and v.Parent and v.Parent.Parent then
             local model = v.Parent
             local hrp = model and model:FindFirstChild("HumanoidRootPart")
             if model and hrp then
@@ -354,135 +360,207 @@ getBossModel = function(folder)
     return nil, nil, nil
 end
 
+local function isInstanceAlive(obj)
+    return typeof(obj) == "Instance" and obj.Parent ~= nil
+end
+
+local function getBossFolderNameSafe(folder)
+    local ok, name = pcall(function()
+        return folder and folder.Name or "nil"
+    end)
+    return ok and name or "nil"
+end
+
+local function findAliveBossModel(folder)
+    if not isInstanceAlive(folder) then
+        return nil, nil, nil
+    end
+
+    local ok, model, humanoid, hrp = pcall(function()
+        for _, v in ipairs(folder:GetDescendants()) do
+            if v:IsA("Humanoid") and v.Parent and v.Parent.Parent then
+                local m = v.Parent
+                local root = m:FindFirstChild("HumanoidRootPart")
+                if m and root and v.Health > 0 then
+                    return m, v, root
+                end
+            end
+        end
+        return nil, nil, nil
+    end)
+
+    if not ok then
+        return nil, nil, nil
+    end
+
+    return model, humanoid, hrp
+end
+
+local function waitForBossFolderGoneOrTimeout(timeout)
+    local started = tick()
+    while tick() - started < timeout do
+        local folder = findGlobalBossFolder()
+        if not folder then
+            return true
+        end
+        task.wait(0.2)
+    end
+    return false
+end
+
+local function waitForPlayerLeaveBossMap(timeout)
+    local started = tick()
+    while tick() - started < timeout do
+        local folder = findGlobalBossFolder()
+        if not folder then
+            return true
+        end
+        task.wait(0.2)
+    end
+    return false
+end
+
 local function teleportToBossAndHold(bossRoot)
-    local root = getRoot()
-    local hum = getHumanoid()
-    if not root or not hum or not bossRoot then
+    if not isInstanceAlive(bossRoot) then
         return false
     end
 
-    local dir = safeUnit(root.Position - bossRoot.Position, Vector3.new(0, 0, 1))
-    local desiredPos = bossRoot.Position + (dir * ATTACK_OFFSET)
-    local desiredCF = CFrame.new(desiredPos, bossRoot.Position)
-
-    if (root.Position - desiredPos).Magnitude > TELEPORT_THRESHOLD then
-        root.CFrame = desiredCF
+    local root = getRoot()
+    local hum = getHumanoid()
+    if not root or not hum then
+        return false
     end
 
-    hum:Move(Vector3.zero, false)
-    return true
+    local ok = pcall(function()
+        local dir = safeUnit(root.Position - bossRoot.Position, Vector3.new(0, 0, 1))
+        local desiredPos = bossRoot.Position + (dir * ATTACK_OFFSET)
+        local desiredCF = CFrame.new(desiredPos, bossRoot.Position)
+
+        if (root.Position - desiredPos).Magnitude > TELEPORT_THRESHOLD then
+            root.CFrame = desiredCF
+        end
+
+        hum:Move(Vector3.zero, false)
+    end)
+
+    return ok
 end
 
--- local function attackBoss(bossFolder)
---     if not bossFolder then
---         bossFolder = waitForBoss(BOSS_WAIT_TIMEOUT)
---     end
-
---     if not bossFolder then
---         warn("[AUTO-GLOBAL-BOSS] GlobalBosses not found")
---         return false
---     end
-
---     log("found boss folder:", bossFolder.Name)
-
---     local model, humanoid, bossRoot = getBossModel(bossFolder)
---     if not model or not humanoid or not bossRoot then
---         warn("[AUTO-GLOBAL-BOSS] Boss model not found")
---         return false
---     end
-
---     log("found boss model:", model.Name)
-
---     task.wait(AFTER_ENTER_DELAY)
---     refreshAutoAttack()
-
---     while true do
---         if not bossFolder or not bossFolder.Parent then
---             log("boss folder removed")
---             break
---         end
-
---         if not model or not model.Parent then
---             log("boss model removed")
---             break
---         end
-
---         if not humanoid or not humanoid.Parent then
---             log("boss humanoid removed")
---             break
---         end
-
---         if humanoid.Health <= 0 then
---             log("boss dead")
---             break
---         end
-
---         if not bossRoot or not bossRoot.Parent then
---             log("boss root removed")
---             break
---         end
-
---         refreshAutoAttack()
---         teleportToBossAndHold(bossRoot)
---         task.wait(0.02)
---     end
-
---     return true
--- end
-
 local function attackBoss(bossFolder)
+    local startedAt = tick()
+    local firstBossKilled = false
+    local firstBossDeadAt = nil
+    local lastSeenBossAt = tick()
+    local firstKilledBossName = nil
+
     if not bossFolder then
         bossFolder = waitForBoss(BOSS_WAIT_TIMEOUT)
     end
 
-    if not bossFolder or not bossFolder.Parent then
-        warn("[AUTO-GLOBAL-BOSS] GlobalBosses not found")
+    if not bossFolder or not isInstanceAlive(bossFolder) then
+        warn("[AUTO-GLOBAL-BOSS] no valid boss folder at attack start")
         return false
     end
 
-    log("found boss folder:", bossFolder.Name)
-
-    local model, humanoid, bossRoot = getBossModel(bossFolder)
-    if not model or not humanoid or not bossRoot then
-        warn("[AUTO-GLOBAL-BOSS] Boss model not found")
-        return false
-    end
-
-    log("locked first boss model:", model.Name)
+    log("attackBoss start folder =", getBossFolderNameSafe(bossFolder))
 
     task.wait(AFTER_ENTER_DELAY)
     refreshAutoAttack()
 
     while true do
-        if not bossFolder or not bossFolder.Parent then
-            log("boss folder removed")
-            return true
+        if tick() - startedAt > GLOBAL_RUN_TIMEOUT then
+            warn("[AUTO-GLOBAL-BOSS] global run timeout")
+            return false
         end
 
-        if not model or not model.Parent then
-            log("locked boss model removed -> treat as finished")
-            return true
+        local liveFolder = findGlobalBossFolder()
+
+        if not liveFolder then
+            if firstBossKilled then
+                log("boss folder disappeared after first kill -> finish")
+                return true
+            end
+
+            if tick() - lastSeenBossAt > MAX_IDLE_WITHOUT_BOSS then
+                warn("[AUTO-GLOBAL-BOSS] no boss folder for too long")
+                return false
+            end
+
+            task.wait(0.2)
+            continue
         end
 
-        if not humanoid or not humanoid.Parent then
-            log("locked boss humanoid removed -> treat as finished")
-            return true
+        bossFolder = liveFolder
+        lastSeenBossAt = tick()
+
+        local model, humanoid, bossRoot = findAliveBossModel(bossFolder)
+
+        if model and humanoid and bossRoot then
+            local currentBossName = model.Name
+
+            if firstBossKilled then
+                log("new boss appeared after first kill, ignore it:", currentBossName)
+
+                local waitedOut = waitForPlayerLeaveBossMap(WAIT_AFTER_FIRST_BOSS_DEAD)
+                if waitedOut then
+                    log("left boss map after first kill")
+                    return true
+                end
+
+                log("still in map after waiting, treat global as finished anyway")
+                return true
+            end
+
+            local ok, err = pcall(function()
+                refreshAutoAttack()
+                teleportToBossAndHold(bossRoot)
+            end)
+
+            if not ok then
+                warn("[AUTO-GLOBAL-BOSS] attack tick error:", err)
+                task.wait(0.1)
+            else
+                if humanoid.Health <= 0 then
+                    firstBossKilled = true
+                    firstBossDeadAt = tick()
+                    firstKilledBossName = currentBossName
+                    log("first boss dead:", currentBossName)
+
+                    task.wait(FIRST_BOSS_KILL_CONFIRM)
+
+                    local recheckFolder = findGlobalBossFolder()
+                    if not recheckFolder then
+                        log("folder gone after first boss dead -> finish")
+                        return true
+                    end
+
+                    local reModel, reHumanoid = findAliveBossModel(recheckFolder)
+
+                    if reModel and reHumanoid and reModel.Name ~= firstKilledBossName then
+                        log("second boss spawned after first kill -> do not attack -> finish")
+                        return true
+                    end
+
+                    local gone = waitForBossFolderGoneOrTimeout(WAIT_AFTER_FIRST_BOSS_DEAD)
+                    if gone then
+                        log("boss folder gone after first boss kill -> finish")
+                        return true
+                    end
+
+                    log("waited after first boss kill, stop global flow now")
+                    return true
+                end
+            end
+        else
+            if firstBossKilled then
+                if tick() - (firstBossDeadAt or tick()) >= 1 then
+                    log("no alive boss model after first kill -> finish")
+                    return true
+                end
+            end
         end
 
-        if humanoid.Health <= 0 then
-            log("locked boss dead -> finish immediately")
-            task.wait(AFTER_BOSS_DEAD_DELAY)
-            return true
-        end
-
-        if not bossRoot or not bossRoot.Parent then
-            log("locked boss root removed -> treat as finished")
-            return true
-        end
-
-        refreshAutoAttack()
-        teleportToBossAndHold(bossRoot)
-        task.wait(0.02)
+        task.wait(ATTACK_LOOP_INTERVAL)
     end
 end
 
@@ -493,8 +571,8 @@ local function shouldStayInBirdcageBurnMode(State, amount)
         State.runtime.globalBossBurnMode = false
     end
 
-    -- เริ่ม burn mode ตอนครบ 10
-    if not State.runtime.globalBossBurnMode and amount >= 10 then
+    -- เริ่ม burn mode ตอนครบ 7
+    if not State.runtime.globalBossBurnMode and amount >= 7 then
         State.runtime.globalBossBurnMode = true
     end
 
@@ -651,8 +729,16 @@ function AutoGlobalBoss.runOnce(State)
             State.runtime.globalBossFinishing = true
         end
 
-        task.wait(6)
-        panicResetToLobby(State, "global_boss_finished")
+        log("global finished -> wait map to kick player out first")
+        task.wait(3)
+
+        local leftMap = waitForPlayerLeaveBossMap(12)
+        if leftMap then
+            log("player already left boss map naturally")
+        else
+            log("map did not remove boss folder in time -> lobby reset fallback")
+            panicResetToLobby(State, "global_boss_finished_fallback")
+        end
     elseif reason == "boss_attack_failed"
         or reason == "enter_existing_portal_failed"
         or reason == "open_portal_failed" then
