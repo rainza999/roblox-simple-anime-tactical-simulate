@@ -14,9 +14,19 @@ local ENTER_CHECK_TIMEOUT = 10
 local BOSS_WAIT_TIMEOUT = 12
 local AFTER_ENTER_DELAY = 3
 local AFTER_BOSS_DEAD_DELAY = 8
+local POST_GLOBAL_COOLDOWN = 12
 
 local function log(...)
     warn("[AUTO-GLOBAL-BOSS]", ...)
+end
+
+local function isPostGlobalCooldown(State)
+    if not State or not State.runtime then
+        return false
+    end
+
+    local untilAt = State.runtime.globalBossCooldownUntil
+    return untilAt and tick() < untilAt
 end
 
 local function getCharacter()
@@ -481,7 +491,7 @@ local function shouldStayInBirdcageBurnMode(State, amount)
     end
 
     -- เริ่ม burn mode ตอนครบ 10
-    if not State.runtime.globalBossBurnMode and amount >= 5 then
+    if not State.runtime.globalBossBurnMode and amount >= 10 then
         State.runtime.globalBossBurnMode = true
     end
 
@@ -503,6 +513,10 @@ function AutoGlobalBoss.shouldForceGlobalBoss(State)
     end
 
     if State.runtime and State.runtime.globalBossFinishing then
+        return false
+    end
+
+    if isPostGlobalCooldown(State) then
         return false
     end
 
