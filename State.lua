@@ -27,6 +27,11 @@ local State = {
         nextWavePoll = 0.1,
 
         globalBossFocusAt = 10,
+
+        beforeFirstChestDelay = 2.5,
+        betweenChestDelay = 3.0,
+        chestInteractDelay = 1.2,
+        afterPressDelay = 0.8,
     },
 
     runtime = {

@@ -446,10 +446,15 @@ local function pressE()
     VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.E, false, game)
 end
 
-local function openAllChestsDirect()
+local function openAllChestsDirect(State)
     local root = getRoot()
     local visuals = workspace:FindFirstChild("Raids_Visual")
     if not visuals then return false end
+
+    local beforeFirstChestDelay = (cfg(State).beforeFirstChestDelay or 2.5)
+    local betweenChestDelay = (cfg(State).betweenChestDelay or 3.0)
+    local chestInteractDelay = (cfg(State).chestInteractDelay or 1.2)
+    local afterPressDelay = (cfg(State).afterPressDelay or 0.8)
 
     for _, v in ipairs(visuals:GetChildren()) do
         if v.Name:find("_Server_") then
@@ -457,31 +462,60 @@ local function openAllChestsDirect()
                 and v.Configs:FindFirstChild("Others")
                 and v.Configs.Others:FindFirstChild("Rewards")
 
-            if not rewards then return false end
+            if not rewards then
+                return false
+            end
 
             local golds = rewards:FindFirstChild("Golds")
             local special = rewards:FindFirstChild("Special")
 
+            -- รอหลังมอนหมด ก่อนเริ่มเปิดกล่อง
+            task.wait(beforeFirstChestDelay)
+
+            local openedAny = false
+
             if golds then
+                log("opening Golds chest...")
                 root.CFrame = golds.WorldPivot
-                task.wait(1)
+                task.wait(chestInteractDelay)
                 pressE()
-                task.wait(0.3)
+                task.wait(afterPressDelay)
+                openedAny = true
+            end
+
+            -- หน่วงระหว่าง 2 กล่อง
+            if golds and special then
+                task.wait(betweenChestDelay)
             end
 
             if special then
+                log("opening Special chest...")
                 root.CFrame = special.WorldPivot
-                task.wait(1)
+                task.wait(chestInteractDelay)
                 pressE()
-                task.wait(0.15)
+                task.wait(afterPressDelay)
 
+                -- กันกรณี prompt ขึ้นช้า / กดรอบแรกไม่ติด
                 root.CFrame = special.WorldPivot * CFrame.new(0, 0, -3)
-                task.wait(0.15)
+                task.wait(0.35)
                 pressE()
-                task.wait(0.3)
+                task.wait(afterPressDelay)
+
+                openedAny = true
             end
 
-            return true
+            -- ต้องพยายามเปิดครบก่อน ถึงถือว่าจบ reward step
+            if golds and not special then
+                log("Golds opened, Special not found")
+            elseif special and not golds then
+                log("Special opened, Golds not found")
+            elseif golds and special then
+                log("both reward chests processed")
+            else
+                log("no reward chests found")
+            end
+
+            return openedAny
         end
     end
 
@@ -571,9 +605,13 @@ function AutoRaid.runOnce(State)
         return false, "global_boss_interrupt"
     end
 
-    openAllChestsDirect()
+    local openedRewards = openAllChestsDirect(State)
+    if not openedRewards then
+        State.runtime.raidBusy = false
+        return false, "open_rewards_failed"
+    end
 
-    task.wait(0.5)
+    task.wait(0.9)
 
     if shouldAbortForGlobalBoss(State) then
         State.runtime.raidBusy = false
