@@ -570,6 +570,28 @@ local function getFreshBoss()
     return nil
 end
 
+local function panicResetToLobby(State, reason)
+    warn("[PANIC-RESET]", reason or "unknown")
+
+    if State and State.runtime then
+        State.runtime.raidBusy = false
+        State.runtime.globalBossBusy = false
+        State.runtime.globalBossFinishing = false
+        State.runtime.bossBusy = false
+        State.runtime.lastAutoAttackAt = 0
+    end
+
+    local ok, err = pcall(function()
+        ReplicatedStorage:WaitForChild("ByteNetReliable"):FireServer(buffer.fromstring("\005\005\000Lobby"))
+    end)
+
+    if not ok then
+        warn("[PANIC-RESET] failed to teleport to lobby:", err)
+    end
+
+    task.wait(10)
+end
+
 function AutoGlobalBoss.runOnce(State)
     if not State or not State.toggles or not State.toggles.globalBosses then
         return false, "global_disabled"
@@ -628,8 +650,13 @@ function AutoGlobalBoss.runOnce(State)
         if State and State.runtime then
             State.runtime.globalBossFinishing = true
         end
-        log("boss finished, waiting for dungeon exit")
-        task.wait(8)
+
+        task.wait(6)
+        panicResetToLobby(State, "global_boss_finished")
+    elseif reason == "boss_attack_failed"
+        or reason == "enter_existing_portal_failed"
+        or reason == "open_portal_failed" then
+        panicResetToLobby(State, reason)
     end
 
     pushBirdcageToState(State, "after_global_run")
