@@ -313,9 +313,8 @@ local function getNearestEnemy(enemies)
     local bestDist = math.huge
 
     for _, enemy in ipairs(enemies) do
-        local hum = enemy:FindFirstChildOfClass("Humanoid")
         local hrp = enemy:FindFirstChild("HumanoidRootPart")
-        if hum and hum.Health > 0 and hrp then
+        if hrp then
             local dist = (root.Position - hrp.Position).Magnitude
             if dist < bestDist then
                 best = enemy
@@ -383,19 +382,66 @@ local function waitForFirstEnemies(State, timeout)
  return false, "first_enemy_timeout"
 end
 
-local function getServerEnemyHealthByName(enemyName)
+-- local function getServerEnemyHealthByName(enemyName)
+--     local serverFolders = getRaidFolders("Server")
+--     for _, folder in ipairs(serverFolders) do
+--         for _, obj in ipairs(folder:GetDescendants()) do
+--             if obj:IsA("Humanoid") then
+--                 local model = obj.Parent
+--                 if model and model.Name == enemyName then
+--                     return obj.Health
+--                 end
+--             end
+--         end
+--     end
+--     return 0
+-- end
+
+local function getServerEnemyHealthFromClientTarget(clientTarget)
+    if not clientTarget or not clientTarget.Parent then
+        return 0
+    end
+
+    local clientRoot = clientTarget:FindFirstChild("HumanoidRootPart")
+    if not clientRoot then
+        return 0
+    end
+
+    print("========== MATCH DEBUG START ==========")
+    print("[CLIENT]", clientTarget.Name, clientTarget:GetFullName(), "POS =", clientRoot.Position)
+
+    local bestHealth = 0
+    local bestDist = math.huge
+    local bestName = nil
+    local bestPath = nil
+
     local serverFolders = getRaidFolders("Server")
     for _, folder in ipairs(serverFolders) do
         for _, obj in ipairs(folder:GetDescendants()) do
             if obj:IsA("Humanoid") then
                 local model = obj.Parent
-                if model and model.Name == enemyName then
-                    return obj.Health
+                local hrp = model and model:FindFirstChild("HumanoidRootPart")
+
+                if model and hrp then
+                    local dist = (hrp.Position - clientRoot.Position).Magnitude
+
+                    print("[SERVER]", model.Name, model:GetFullName(), "HP =", obj.Health, "POS =", hrp.Position, "DIST =", dist)
+
+                    if obj.Health > 0 and dist < bestDist then
+                        bestDist = dist
+                        bestHealth = obj.Health
+                        bestName = model.Name
+                        bestPath = model:GetFullName()
+                    end
                 end
             end
         end
     end
-    return 0
+
+    print(">>> [MATCH RESULT]", clientTarget.Name, "=>", bestName, bestPath, "HP =", bestHealth, "DIST =", bestDist)
+    print("========== MATCH DEBUG END ==========")
+
+    return bestHealth
 end
 
 local function waitForNextWaveOrDone(State)
@@ -423,6 +469,7 @@ local function clearAllEnemies(State)
         if shouldAbortForGlobalBoss(State) then
             return false, "global_boss_interrupt"
         end
+
         refreshAutoAttack(State)
 
         local enemies = getEnemies()
@@ -441,18 +488,23 @@ local function clearAllEnemies(State)
 
         if currentTarget then
             local hrp = currentTarget:FindFirstChild("HumanoidRootPart")
-            local realHP = getServerEnemyHealthByName(currentTarget.Name)
-            if (not currentTarget.Parent) or (not hrp) or realHP <= 5 then
+            local realHP = getServerEnemyHealthFromClientTarget(currentTarget)
+
+            if (not currentTarget.Parent) or (not hrp) or realHP <= 0 then
                 currentTarget = nil
             end
         end
 
         if not currentTarget then
             currentTarget = getNearestEnemy(enemies)
+            if currentTarget then
+                print("[CLIENT TARGET]", currentTarget.Name, currentTarget:GetFullName())
+            end
         end
 
         if currentTarget then
-            local realHP = getServerEnemyHealthByName(currentTarget.Name)
+            local realHP = getServerEnemyHealthFromClientTarget(currentTarget)
+
             if realHP > 0 then
                 teleportToEnemyAndHold(State, currentTarget)
             else

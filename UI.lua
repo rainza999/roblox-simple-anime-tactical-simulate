@@ -1,8 +1,10 @@
 local Players = game:GetService("Players")
+local UserInputService = game:GetService("UserInputService")
 local LocalPlayer = Players.LocalPlayer
 
 local UI = {}
 local domainBirdcageLabel
+
 local function makeToggle(parent, text, defaultValue, onChanged, order)
     local row = Instance.new("Frame")
     row.Name = text .. "_Row"
@@ -67,6 +69,7 @@ function UI.init(State)
     frame.Position = UDim2.new(0, 20, 0, 120)
     frame.BackgroundColor3 = Color3.fromRGB(30, 30, 35)
     frame.BorderSizePixel = 0
+    frame.Active = true
     frame.Parent = gui
 
     local title = Instance.new("TextLabel")
@@ -83,11 +86,11 @@ function UI.init(State)
     end, 1)
 
     makeToggle(frame, "BossFight", State.toggles.bossFight, function(v)
-    State.toggles.bossFight = v
+        State.toggles.bossFight = v
     end, 2)
 
     makeToggle(frame, "GlobalBosses", State.toggles.globalBosses, function(v)
-    State.toggles.globalBosses = v
+        State.toggles.globalBosses = v
     end, 3)
 
     domainBirdcageLabel = Instance.new("TextLabel")
@@ -117,13 +120,57 @@ function UI.init(State)
     info.Text = "Priority:\n1) GlobalBoss portal มา -> ทิ้ง raid ไปทันที\n2) ถ้า DomainBirdcage >= 10 -> ฟาร์ม GlobalBoss จนเหลือ 0\n3) ที่เหลือค่อยวิ่ง Raid / BossFight"
     info.Parent = frame
 
+    -- draggable
+    local dragging = false
+    local dragInput
+    local dragStart
+    local startPos
+
+    local function updateDrag(input)
+        local delta = input.Position - dragStart
+        frame.Position = UDim2.new(
+            startPos.X.Scale,
+            startPos.X.Offset + delta.X,
+            startPos.Y.Scale,
+            startPos.Y.Offset + delta.Y
+        )
+    end
+
+    title.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1
+            or input.UserInputType == Enum.UserInputType.Touch then
+            dragging = true
+            dragStart = input.Position
+            startPos = frame.Position
+
+            input.Changed:Connect(function()
+                if input.UserInputState == Enum.UserInputState.End then
+                    dragging = false
+                end
+            end)
+        end
+    end)
+
+    title.InputChanged:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseMovement
+            or input.UserInputType == Enum.UserInputType.Touch then
+            dragInput = input
+        end
+    end)
+
+    UserInputService.InputChanged:Connect(function(input)
+        if dragging and input == dragInput then
+            updateDrag(input)
+        end
+    end)
+
     return gui
 end
 
 function UI.updateDomainBirdcage(count)
- if domainBirdcageLabel then
-  domainBirdcageLabel.Text = "DomainBirdcage: " .. tostring(count or 0)
- end
+    if domainBirdcageLabel then
+        domainBirdcageLabel.Text = "DomainBirdcage: " .. tostring(count or 0)
+    end
 end
 
 return UI
