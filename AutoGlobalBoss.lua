@@ -481,7 +481,7 @@ local function shouldStayInBirdcageBurnMode(State, amount)
     end
 
     -- เริ่ม burn mode ตอนครบ 10
-    if not State.runtime.globalBossBurnMode and amount >= 10 then
+    if not State.runtime.globalBossBurnMode and amount >= 5 then
         State.runtime.globalBossBurnMode = true
     end
 
