@@ -9,11 +9,11 @@ local AutoGlobalBoss = {}
 local ATTACK_OFFSET = 3
 local TELEPORT_THRESHOLD = 6
 
-local PORTAL_WAIT_TIMEOUT = 8
-local ENTER_CHECK_TIMEOUT = 10
-local BOSS_WAIT_TIMEOUT = 12
-local AFTER_ENTER_DELAY = 3
-local AFTER_BOSS_DEAD_DELAY = 8
+local PORTAL_WAIT_TIMEOUT = 10
+local ENTER_CHECK_TIMEOUT = 12
+local BOSS_WAIT_TIMEOUT = 15
+local AFTER_ENTER_DELAY = 5
+local AFTER_BOSS_DEAD_DELAY = 10
 local POST_GLOBAL_COOLDOWN = 12
 
 local function log(...)
@@ -180,20 +180,20 @@ local function tpToPortalAndEnter(prompt)
     local portalPos = attachment.WorldPosition
 
     rootPart.CFrame = CFrame.new(portalPos + Vector3.new(0, 2, 3), portalPos)
-    task.wait(0.8)
+    task.wait(1.5)
 
     rootPart.CFrame = CFrame.new(portalPos + Vector3.new(0, 2, 2), portalPos)
-    task.wait(1)
+    task.wait(2)
 
     pcall(function()
         fireproximityprompt(prompt)
     end)
 
-    task.wait(0.7)
+    task.wait(1.2)
     pressE()
     -- 🔥 เพิ่มตรงนี้
-    task.wait(2) -- รอ map init ก่อน
-    print("wait 2 seconds after pressing E to allow map to load")
+    task.wait(5) -- รอ map init ก่อน
+    print("wait 5 seconds after pressing E to allow map to load")
     local bossFolder = waitForBossSpawn(10)
     if bossFolder then
         log("boss detected after enter:", bossFolder.Name)
@@ -298,15 +298,17 @@ local function openPortalByNpcAndEnter(State)
     log("no portal found, opening with NPC. Domain Birdcage =", bird)
 
     talkMahito()
-    task.wait(0.6)
+    task.wait(1.2)
     closeDialogueGui()
-    task.wait(0.8)
+    task.wait(1.5)
 
     local prompt = waitForPortalPrompt(PORTAL_WAIT_TIMEOUT)
     if not prompt then
         warn("[AUTO-GLOBAL-BOSS] portal did not appear after talking NPC")
         return false, nil
     end
+
+    task.wait(1.5) -- รอ portal stable ก่อนค่อยเข้า
 
     -- tpToPortalAndEnter(prompt)
     local entered = tpToPortalAndEnter(prompt)
@@ -469,6 +471,7 @@ local function attackBoss(bossFolder)
 
         if humanoid.Health <= 0 then
             log("locked boss dead -> finish immediately")
+            task.wait(AFTER_BOSS_DEAD_DELAY)
             return true
         end
 
@@ -626,7 +629,7 @@ function AutoGlobalBoss.runOnce(State)
             State.runtime.globalBossFinishing = true
         end
         log("boss finished, waiting for dungeon exit")
-        task.wait(6)
+        task.wait(8)
     end
 
     pushBirdcageToState(State, "after_global_run")
