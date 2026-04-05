@@ -115,6 +115,30 @@ local function goToChallengesLobby()
     return true
 end
 
+local function waitUntilOutOfRaid(timeout)
+    local started = tick()
+    while tick() - started < (timeout or 10) do
+        if not AutoRaid.isInRaid() then
+            return true
+        end
+        task.wait(0.25)
+    end
+    return false
+end
+
+local function exitRaidDirectForGlobalBoss(State)
+    log("global boss interrupt -> leave raid by teleporting to lobby")
+
+    goToChallengesLobby()
+    task.wait((cfg(State).afterLeaveRaidTeleportDelay or 2.5))
+
+    local left = waitUntilOutOfRaid(cfg(State).leaveRaidTimeout or 10)
+    log("left raid =", left)
+
+    task.wait((cfg(State).afterLeaveRaidStableDelay or 1.5))
+    return left
+end
+
 local function teleportToRaidPod(State)
     local podName = raidCfg(State).podName
     local pod = RaidPods[podName]
@@ -345,7 +369,7 @@ local function waitForFirstEnemies(State, timeout)
 
  while tick() - started < (timeout or cfg(State).firstEnemyTimeout) do
   if shouldAbortForGlobalBoss(State) then
-   return false, "global_boss_interrupt"
+    return false, "global_boss_interrupt"
   end
 
   local enemies = getEnemies()
@@ -574,6 +598,7 @@ function AutoRaid.runOnce(State)
     State.runtime.raidBusy = true
 
     if shouldAbortForGlobalBoss(State) then
+        exitRaidDirectForGlobalBoss(State)
         State.runtime.raidBusy = false
         return false, "global_boss_interrupt"
     end
@@ -584,23 +609,26 @@ function AutoRaid.runOnce(State)
         local ok = waitUntilInRaid(State, cfg(State).enterRaidTimeout)
         if not ok then
             State.runtime.raidBusy = false
-        return false, "enter_raid_failed"
+            return false, "enter_raid_failed"
         end
     end
 
     local hasEnemies, firstEnemyReason = waitForFirstEnemies(State, cfg(State).firstEnemyTimeout)
     if not hasEnemies and firstEnemyReason == "global_boss_interrupt" then
+        exitRaidDirectForGlobalBoss(State)
         State.runtime.raidBusy = false
         return false, "global_boss_interrupt"
     end
 
     local cleared, clearReason = clearAllEnemies(State)
     if not cleared and clearReason == "global_boss_interrupt" then
+        exitRaidDirectForGlobalBoss(State)
         State.runtime.raidBusy = false
         return false, "global_boss_interrupt"
     end
 
     if shouldAbortForGlobalBoss(State) then
+        exitRaidDirectForGlobalBoss(State)
         State.runtime.raidBusy = false
         return false, "global_boss_interrupt"
     end
@@ -614,6 +642,7 @@ function AutoRaid.runOnce(State)
     task.wait(0.9)
 
     if shouldAbortForGlobalBoss(State) then
+        exitRaidDirectForGlobalBoss(State)
         State.runtime.raidBusy = false
         return false, "global_boss_interrupt"
     end

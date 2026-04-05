@@ -32,6 +32,10 @@ local State = {
         betweenChestDelay = 3.0,
         chestInteractDelay = 1.2,
         afterPressDelay = 0.8,
+
+        leaveRaidTimeout = 10,
+        afterLeaveRaidTeleportDelay = 2.5,
+        afterLeaveRaidStableDelay = 1.5,
     },
 
     runtime = {
@@ -43,6 +47,10 @@ local State = {
         domainBirdcageCount = 0,
 
         lastBossWindowHandled = nil,
+
+        globalBossFinishing = false,
+        globalBossCooldownUntil = 0,
+        globalBossBurnMode = false,
     }
 }
 
