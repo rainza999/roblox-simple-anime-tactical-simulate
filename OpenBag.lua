@@ -1,5 +1,6 @@
+local VirtualInputManager = game:GetService("VirtualInputManager")
 task.spawn(function()
-    while getgenv().VelvetRunning do
+    while true do
         -- กด G
         VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.G, false, game)
         task.wait(0.1)
