@@ -292,7 +292,7 @@ local function enterRaid_newSpring(State, profile)
     end
 
     -- step 1: เลือก party / diff หน้า lobby
-    local partyObj = getRaidPartyByName(profile)
+    local partyObj = getRaidParty(profile)
     getRaidLobbyRemote():FireServer(partyObj, profile.difficultyLobbyKey)
     task.wait(0.35)
 
@@ -316,7 +316,7 @@ end
 local function enterRaid_legacy(State, profile)
     log("enterRaid_legacy start")
 
-    local partyObj = getRaidPartyByName(profile.partyOwner)
+    local partyObj = getRaidParty(profile)
     getRaidLobbyRemote():FireServer(partyObj, profile.map)
     task.wait(0.35)
 
