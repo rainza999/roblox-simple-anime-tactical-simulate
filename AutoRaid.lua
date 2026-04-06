@@ -7,27 +7,21 @@ local LocalPlayer = Players.LocalPlayer
 local AutoRaid = {}
 
 local function cfg(State)
-    return State.config
+    return State.config or {}
 end
 
 local function raidCfg(State)
+    State.raid = State.raid or {}
     return State.raid
+end
+
+local function runtime(State)
+    State.runtime = State.runtime or {}
+    return State.runtime
 end
 
 local function log(...)
     warn("[AUTO-RAID]", ...)
-end
-
-local function resolvePodByPlayer()
-    local name = LocalPlayer.Name
-
-    if name == "l2ainl3lack" then
-        return "Pod_01"
-    elseif name == "RainFatherReal" then
-        return "Pod_02"
-    else
-        return "Pod_03"
-    end
 end
 
 local function getCharacter()
@@ -49,11 +43,15 @@ local function safeUnit(v, fallback)
     return v.Unit
 end
 
-local function getParty()
-    return ReplicatedStorage
-        :WaitForChild("Shared")
-        :WaitForChild("Parties")
-        :WaitForChild(LocalPlayer.Name)
+local function pressE()
+    VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.E, false, game)
+    task.wait(0.08)
+    VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.E, false, game)
+end
+
+local function tpTo(cf)
+    getRoot().CFrame = cf
+    return true
 end
 
 local function getRaidLobbyRemote()
@@ -81,138 +79,161 @@ local function getByteNetReliable()
     return ReplicatedStorage:WaitForChild("ByteNetReliable")
 end
 
-local RaidPods = {
-    Pod_01 = Workspace:WaitForChild("Raids_Entering"):WaitForChild("Pod_01"),
-    Pod_02 = Workspace:WaitForChild("Raids_Entering"):WaitForChild("Pod_02"),
-    Pod_03 = Workspace:WaitForChild("Raids_Entering"):WaitForChild("Pod_03"),
+local function getRaidPartyByName(name)
+    local shared = ReplicatedStorage:WaitForChild("Shared")
+    local parties = shared:WaitForChild("Parties")
+    return parties:WaitForChild(name)
+end
+
+local PROFILES = {
+    spring_new = {
+        displayName = "Spring Dungeons (NEW)",
+        map = "Spring Dungeons",
+        difficulty = "Nightmare",
+        difficultyLobbyKey = "Diffculty_Nightmare",
+
+        -- คนที่เป็นเจ้าของ party / visual server name
+        partyOwner = "RainFatherReal",
+        visualServerName = "Spring Dungeons_Server_RainFatherReal",
+
+        -- จุดวาปก่อนกดลงดัน
+        lobbyTeleport = Vector3.new(9096.3105, 3169.6552, 5159.6782),
+
+        -- reward ใหม่: มีแค่ Golds
+        rewardType = "golds_only",
+
+        -- path ใหม่
+        goldsPath = {"Configs", "Others", "Rewards", "Golds"},
+        portalPath = {"Configs", "Others", "Portal", "Travel", "Attachment"},
+    },
+
+    -- เผื่อไว้ ถ้าจะโยก logic เก่ากลับมาใส่ทีหลัง
+    legacy = {
+        displayName = "Legacy Raid",
+        map = "Jujutsu Highschool",
+        difficulty = "Nightmare",
+        difficultyLobbyKey = "Diffculty_Nightmare",
+        partyOwner = LocalPlayer.Name,
+        visualServerName = nil,
+        lobbyTeleport = nil,
+        rewardType = "golds_and_special",
+        goldsPath = {"Configs", "Others", "Rewards", "Golds"},
+        specialPath = {"Configs", "Others", "Rewards", "Special"},
+        portalPath = {"Configs", "Others", "Portal", "Travel", "Attachment"},
+    },
 }
 
-local RaidMapAlias = {
-    ["Jujutsu Highschool"] = "Worlds_Jujutsu Highschool",
-}
+local function getSelectedProfile(State)
+    local name = raidCfg(State).profile or "spring_new"
+    return PROFILES[name] or PROFILES.spring_new
+end
 
-local RaidDifficultyAlias = {
-    ["Nightmare"] = "Diffculty_Nightmare",
-    ["Hard"] = "Diffculty_Hard",
-    ["Normal"] = "Diffculty_Normal",
-    ["Easy"] = "Diffculty_Easy",
-}
+local function getChildByPath(root, path)
+    local current = root
+    for _, key in ipairs(path) do
+        if not current then
+            return nil
+        end
+        current = current:FindFirstChild(key)
+    end
+    return current
+end
+
+local function getVisualRoot(profile)
+    local visuals = Workspace:FindFirstChild("Raids_Visual")
+    if not visuals then
+        return nil
+    end
+
+    if profile.visualServerName then
+        local exact = visuals:FindFirstChild(profile.visualServerName)
+        if exact then
+            return exact
+        end
+    end
+
+    for _, v in ipairs(visuals:GetChildren()) do
+        if v.Name:find("_Server_") then
+            if (not profile.map or v.Name:find(profile.map, 1, true)) then
+                return v
+            end
+        end
+    end
+
+    return nil
+end
+
+local function getObjectCFrame(obj)
+    if not obj then
+        return nil
+    end
+
+    if obj:IsA("Model") then
+        return obj:GetPivot()
+    end
+
+    if obj:IsA("BasePart") then
+        return obj.CFrame
+    end
+
+    if obj:IsA("Attachment") then
+        return obj.WorldCFrame
+    end
+
+    local primary = obj:FindFirstChild("Primary")
+    if primary and primary:IsA("BasePart") then
+        return primary.CFrame
+    end
+
+    if obj.WorldPivot then
+        return obj.WorldPivot
+    end
+
+    return nil
+end
+
+local function getPromptFromObject(obj)
+    if not obj then
+        return nil
+    end
+
+    if obj:IsA("ProximityPrompt") then
+        return obj
+    end
+
+    local direct = obj:FindFirstChildOfClass("ProximityPrompt")
+    if direct then
+        return direct
+    end
+
+    for _, d in ipairs(obj:GetDescendants()) do
+        if d:IsA("ProximityPrompt") then
+            return d
+        end
+    end
+
+    return nil
+end
 
 local function refreshAutoAttack(State)
-    if not State.runtime.lastAutoAttackAt or (tick() - State.runtime.lastAutoAttackAt >= cfg(State).autoAttackRefresh) then
+    local rt = runtime(State)
+    local delayTime = cfg(State).autoAttackRefresh or 0.75
+
+    if not rt.lastAutoAttackAt or (tick() - rt.lastAutoAttackAt >= delayTime) then
         getByteNetReliable():FireServer(buffer.fromstring("\016\000"))
-        State.runtime.lastAutoAttackAt = tick()
+        rt.lastAutoAttackAt = tick()
     end
-end
-
-local function tpTo(cf)
-    getRoot().CFrame = cf
-    return true
-end
-
-local function goToChallengesLobby()
-    getByteNetReliable():FireServer(buffer.fromstring("\005\005\000Lobby"))
-    return true
-end
-
-local function waitUntilOutOfRaid(timeout)
-    local started = tick()
-    while tick() - started < (timeout or 10) do
-        if not AutoRaid.isInRaid() then
-            return true
-        end
-        task.wait(0.25)
-    end
-    return false
-end
-
-local function exitRaidDirectForGlobalBoss(State)
-    log("global boss interrupt -> leave raid by teleporting to lobby")
-
-    goToChallengesLobby()
-    task.wait((cfg(State).afterLeaveRaidTeleportDelay or 2.5))
-
-    local left = waitUntilOutOfRaid(cfg(State).leaveRaidTimeout or 10)
-    log("left raid =", left)
-
-    task.wait((cfg(State).afterLeaveRaidStableDelay or 1.5))
-    return left
-end
-
-local function teleportToRaidPod(State)
-    local podName = raidCfg(State).podName
-    local pod = RaidPods[podName]
-    if not pod then return false end
-
-    if pod:IsA("Model") then
-        return tpTo(pod.WorldPivot)
-    end
-
-    local center = pod:FindFirstChild("Centers")
-    if center and center:IsA("BasePart") then
-        return tpTo(center.CFrame)
-    end
-
-    return false
-end
-
-local function stepIntoRaidPod(State)
-    local podName = raidCfg(State).podName
-    local pod = RaidPods[podName]
-    if not pod then return false end
-
-    local root = getRoot()
-
-    if pod:IsA("Model") then
-        root.CFrame = pod.WorldPivot
-        return true
-    end
-
-    local center = pod:FindFirstChild("Centers")
-    if center and center:IsA("BasePart") then
-        root.CFrame = center.CFrame
-        return true
-    end
-
-    return false
-end
-
-local function selectRaidMap(State)
-    local mapName = raidCfg(State).map
-    local mapped = RaidMapAlias[mapName] or mapName
-    getRaidLobbyRemote():FireServer(getParty(), mapped)
-    return true
-end
-
-local function selectRaidDifficulty(State)
-    local diffName = raidCfg(State).difficulty
-    local mapped = RaidDifficultyAlias[diffName] or diffName
-    getRaidLobbyRemote():FireServer(getParty(), mapped)
-    return true
-end
-
-local function startRaid(State)
-    getRaidStartRemote():FireServer(raidCfg(State).map, raidCfg(State).difficulty)
-    return true
-end
-
-local function confirmRaidLobby()
-    getRaidLobbyRemote():FireServer(Instance.new("Folder"), true)
-    return true
-end
-
-local function disableParty()
-    getPartyRemote():FireServer("Disabled")
-    return true
 end
 
 local function getRaidFolders(containerName)
-    local root = workspace:FindFirstChild("Worlds")
+    local root = Workspace:FindFirstChild("Worlds")
     root = root and root:FindFirstChild("Targets")
     root = root and root:FindFirstChild(containerName or "Clients")
 
     local results = {}
-    if not root then return results end
+    if not root then
+        return results
+    end
 
     for _, obj in ipairs(root:GetChildren()) do
         if obj.Name:match("^Raids") then
@@ -229,74 +250,145 @@ end
 
 local function waitUntilInRaid(State, timeout)
     local started = tick()
-    while tick() - started < (timeout or cfg(State).enterRaidTimeout) do
+    local maxTime = timeout or cfg(State).enterRaidTimeout or 15
+
+    while tick() - started < maxTime do
         if AutoRaid.isInRaid() then
             return true
         end
         task.wait(0.25)
     end
+
     return false
 end
 
-local function enterRaid(State)
-    goToChallengesLobby()
-    task.wait(1.2)
+local function waitUntilOutOfRaid(timeout)
+    local started = tick()
+    local maxTime = timeout or 10
 
-    State.raid.podName = resolvePodByPlayer()
+    while tick() - started < maxTime do
+        if not AutoRaid.isInRaid() then
+            return true
+        end
+        task.wait(0.25)
+    end
 
-    teleportToRaidPod(State)
-    task.wait(0.5)
+    return false
+end
 
-    stepIntoRaidPod(State)
-    task.wait(1.0)
+local function enterRaid_newSpring(State, profile)
+    log("enterRaid_newSpring start")
 
-    selectRaidMap(State)
+    if profile.lobbyTeleport then
+        tpTo(CFrame.new(profile.lobbyTeleport))
+        task.wait(0.8)
+    end
+
+    -- step 1: เลือก party / diff หน้า lobby
+    local partyObj = getRaidPartyByName(profile.partyOwner)
+    getRaidLobbyRemote():FireServer(partyObj, profile.difficultyLobbyKey)
     task.wait(0.35)
 
-    selectRaidDifficulty(State)
+    -- step 2: start raid
+    getRaidStartRemote():FireServer(profile.map, profile.difficulty)
     task.wait(0.35)
 
-    startRaid(State)
-    task.wait(0.35)
+    -- step 3: confirm
+    local confirmFolder = Instance.new("Folder")
+    getRaidLobbyRemote():FireServer(confirmFolder, nil, true)
+    confirmFolder:Destroy()
+    task.wait(0.25)
 
-    confirmRaidLobby()
-    task.wait(0.2)
-
-    disableParty()
-    task.wait(0.5)
+    -- step 4: disable party
+    getPartyRemote():FireServer("Disabled")
+    task.wait(0.4)
 
     return true
 end
 
-local function getEnemies()
-    local clientFolders = getRaidFolders("Clients")
+local function enterRaid_legacy(State, profile)
+    log("enterRaid_legacy start")
+
+    local partyObj = getRaidPartyByName(profile.partyOwner)
+    getRaidLobbyRemote():FireServer(partyObj, profile.map)
+    task.wait(0.35)
+
+    getRaidLobbyRemote():FireServer(partyObj, profile.difficultyLobbyKey)
+    task.wait(0.35)
+
+    getRaidStartRemote():FireServer(profile.map, profile.difficulty)
+    task.wait(0.35)
+
+    local confirmFolder = Instance.new("Folder")
+    getRaidLobbyRemote():FireServer(confirmFolder, nil, true)
+    confirmFolder:Destroy()
+    task.wait(0.25)
+
+    getPartyRemote():FireServer("Disabled")
+    task.wait(0.4)
+
+    return true
+end
+
+local function enterRaid(State)
+    local profile = getSelectedProfile(State)
+
+    if (raidCfg(State).profile or "spring_new") == "spring_new" then
+        return enterRaid_newSpring(State, profile)
+    end
+
+    return enterRaid_legacy(State, profile)
+end
+
+local function getServerEnemyHealthFromClientTarget(clientTarget)
+    if not clientTarget or not clientTarget.Parent then
+        return 0
+    end
+
+    local clientRoot = clientTarget:FindFirstChild("HumanoidRootPart")
+    if not clientRoot then
+        return 0
+    end
+
+    local bestHealth = 0
+    local bestDist = math.huge
+
     local serverFolders = getRaidFolders("Server")
-
-    local results = {}
-    local seen = {}
-    local serverHP = {}
-
     for _, folder in ipairs(serverFolders) do
         for _, obj in ipairs(folder:GetDescendants()) do
             if obj:IsA("Humanoid") then
                 local model = obj.Parent
-                if model then
-                    serverHP[model.Name] = obj.Health
+                local hrp = model and model:FindFirstChild("HumanoidRootPart")
+                if model and hrp and obj.Health > 0 then
+                    local dist = (hrp.Position - clientRoot.Position).Magnitude
+                    if dist < bestDist then
+                        bestDist = dist
+                        bestHealth = obj.Health
+                    end
                 end
             end
         end
     end
+
+    return bestHealth
+end
+
+local function getEnemies()
+    local clientFolders = getRaidFolders("Clients")
+    local results = {}
+    local seen = {}
 
     for _, folder in ipairs(clientFolders) do
         for _, obj in ipairs(folder:GetDescendants()) do
             if obj:IsA("Humanoid") then
                 local model = obj.Parent
                 local hrp = model and model:FindFirstChild("HumanoidRootPart")
-                local hp = model and serverHP[model.Name] or 0
-
-                if model and hrp and hp > 0 and not seen[model] then
-                    seen[model] = true
-                    table.insert(results, model)
+                if model and hrp and not seen[model] then
+                    local hp = getServerEnemyHealthFromClientTarget(model)
+                    if hp > 0 then
+                        seen[model] = true
+                        table.insert(results, model)
+                    end
                 end
             end
         end
@@ -307,11 +399,11 @@ end
 
 local function getNearestEnemy(enemies)
     local root = getRoot()
-    if not root then return nil end
+    if not root then
+        return nil
+    end
 
-    local best = nil
-    local bestDist = math.huge
-
+    local best, bestDist = nil, math.huge
     for _, enemy in ipairs(enemies) do
         local hrp = enemy:FindFirstChild("HumanoidRootPart")
         if hrp then
@@ -330,13 +422,19 @@ local function teleportToEnemyAndHold(State, target)
     local root = getRoot()
     local hum = getHumanoid()
     local targetRoot = target and target:FindFirstChild("HumanoidRootPart")
-    if not root or not hum or not targetRoot then return false end
 
-    local dir = safeUnit(root.Position - targetRoot.Position, Vector3.new(0,0,1))
-    local desiredPos = targetRoot.Position + (dir * cfg(State).attackOffset)
+    if not root or not hum or not targetRoot then
+        return false
+    end
+
+    local offset = cfg(State).attackOffset or 6
+    local threshold = cfg(State).teleportThreshold or 12
+
+    local dir = safeUnit(root.Position - targetRoot.Position, Vector3.new(0, 0, 1))
+    local desiredPos = targetRoot.Position + (dir * offset)
     local desiredCF = CFrame.new(desiredPos, targetRoot.Position)
 
-    if (root.Position - desiredPos).Magnitude > cfg(State).teleportThreshold then
+    if (root.Position - desiredPos).Magnitude > threshold then
         root.CFrame = desiredCF
     end
 
@@ -344,119 +442,34 @@ local function teleportToEnemyAndHold(State, target)
     return true
 end
 
-local function shouldAbortForGlobalBoss(State)
-    if not State then
-        return false
-    end
-
-    if not State.toggles or not State.toggles.globalBosses then
-        return false
-    end
-
-    if type(State.shouldInterruptRaidForGlobalBoss) == "function" then
-        local ok, result = pcall(State.shouldInterruptRaidForGlobalBoss)
-        if ok and result then
-            return true
-        end
-    end
-
-    return false
-end
-
 local function waitForFirstEnemies(State, timeout)
- local started = tick()
+    local started = tick()
+    local maxTime = timeout or cfg(State).firstEnemyTimeout or 20
 
- while tick() - started < (timeout or cfg(State).firstEnemyTimeout) do
-  if shouldAbortForGlobalBoss(State) then
-    return false, "global_boss_interrupt"
-  end
-
-  local enemies = getEnemies()
-  if #enemies > 0 then
-   return true, nil
-  end
-
-  task.wait(0.25)
- end
-
- return false, "first_enemy_timeout"
-end
-
--- local function getServerEnemyHealthByName(enemyName)
---     local serverFolders = getRaidFolders("Server")
---     for _, folder in ipairs(serverFolders) do
---         for _, obj in ipairs(folder:GetDescendants()) do
---             if obj:IsA("Humanoid") then
---                 local model = obj.Parent
---                 if model and model.Name == enemyName then
---                     return obj.Health
---                 end
---             end
---         end
---     end
---     return 0
--- end
-
-local function getServerEnemyHealthFromClientTarget(clientTarget)
-    if not clientTarget or not clientTarget.Parent then
-        return 0
-    end
-
-    local clientRoot = clientTarget:FindFirstChild("HumanoidRootPart")
-    if not clientRoot then
-        return 0
-    end
-
-    print("========== MATCH DEBUG START ==========")
-    print("[CLIENT]", clientTarget.Name, clientTarget:GetFullName(), "POS =", clientRoot.Position)
-
-    local bestHealth = 0
-    local bestDist = math.huge
-    local bestName = nil
-    local bestPath = nil
-
-    local serverFolders = getRaidFolders("Server")
-    for _, folder in ipairs(serverFolders) do
-        for _, obj in ipairs(folder:GetDescendants()) do
-            if obj:IsA("Humanoid") then
-                local model = obj.Parent
-                local hrp = model and model:FindFirstChild("HumanoidRootPart")
-
-                if model and hrp then
-                    local dist = (hrp.Position - clientRoot.Position).Magnitude
-
-                    print("[SERVER]", model.Name, model:GetFullName(), "HP =", obj.Health, "POS =", hrp.Position, "DIST =", dist)
-
-                    if obj.Health > 0 and dist < bestDist then
-                        bestDist = dist
-                        bestHealth = obj.Health
-                        bestName = model.Name
-                        bestPath = model:GetFullName()
-                    end
-                end
-            end
+    while tick() - started < maxTime do
+        local enemies = getEnemies()
+        if #enemies > 0 then
+            return true, nil
         end
+        task.wait(0.25)
     end
 
-    print(">>> [MATCH RESULT]", clientTarget.Name, "=>", bestName, bestPath, "HP =", bestHealth, "DIST =", bestDist)
-    print("========== MATCH DEBUG END ==========")
-
-    return bestHealth
+    return false, "first_enemy_timeout"
 end
 
 local function waitForNextWaveOrDone(State)
-    if shouldAbortForGlobalBoss(State) then
-        return false, "global_boss_interrupt"
-    end
     local started = tick()
-    while tick() - started < (cfg(State).nextWaveWait or 3) do
+    local maxTime = cfg(State).nextWaveWait or 3
+    local poll = cfg(State).nextWavePoll or 0.1
+
+    while tick() - started < maxTime do
         refreshAutoAttack(State)
 
         if #getEnemies() > 0 then
             return false, nil
         end
 
-        task.wait(cfg(State).nextWavePoll or 0.1)
+        task.wait(poll)
     end
 
     return true, nil
@@ -466,19 +479,11 @@ local function clearAllEnemies(State)
     local currentTarget = nil
 
     while true do
-        if shouldAbortForGlobalBoss(State) then
-            return false, "global_boss_interrupt"
-        end
-
         refreshAutoAttack(State)
 
         local enemies = getEnemies()
         if #enemies == 0 then
-            local finished, reason = waitForNextWaveOrDone(State)
-            if reason == "global_boss_interrupt" then
-                return false, reason
-            end
-
+            local finished = waitForNextWaveOrDone(State)
             if finished then
                 return true, nil
             else
@@ -497,14 +502,10 @@ local function clearAllEnemies(State)
 
         if not currentTarget then
             currentTarget = getNearestEnemy(enemies)
-            if currentTarget then
-                print("[CLIENT TARGET]", currentTarget.Name, currentTarget:GetFullName())
-            end
         end
 
         if currentTarget then
             local realHP = getServerEnemyHealthFromClientTarget(currentTarget)
-
             if realHP > 0 then
                 teleportToEnemyAndHold(State, currentTarget)
             else
@@ -516,194 +517,188 @@ local function clearAllEnemies(State)
     end
 end
 
-local function pressE()
-    VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.E, false, game)
-    task.wait(0.08)
-    VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.E, false, game)
+local function openGoldsOnly(State, profile)
+    local visual = getVisualRoot(profile)
+    if not visual then
+        log("visual not found")
+        return false
+    end
+
+    local golds = getChildByPath(visual, profile.goldsPath)
+    if not golds then
+        log("golds not found")
+        return false
+    end
+
+    local goldsCF = getObjectCFrame(golds)
+    if not goldsCF then
+        log("golds cframe not found")
+        return false
+    end
+
+    local beforeFirstChestDelay = cfg(State).beforeFirstChestDelay or 2.0
+    local chestInteractDelay = cfg(State).chestInteractDelay or 1.1
+    local afterPressDelay = cfg(State).afterPressDelay or 0.8
+
+    task.wait(beforeFirstChestDelay)
+
+    log("opening Golds...")
+    getRoot().CFrame = goldsCF
+    task.wait(chestInteractDelay)
+
+    local prompt = getPromptFromObject(golds)
+    if prompt then
+        fireproximityprompt(prompt)
+    else
+        pressE()
+    end
+
+    task.wait(afterPressDelay)
+
+    -- กันพลาด กดซ้ำอีกครั้ง
+    getRoot().CFrame = goldsCF
+    task.wait(0.25)
+
+    if prompt then
+        fireproximityprompt(prompt)
+    else
+        pressE()
+    end
+
+    task.wait(afterPressDelay)
+    return true
 end
 
-local function openAllChestsDirect(State)
+local function openRewards(State)
+    local profile = getSelectedProfile(State)
+
+    if profile.rewardType == "golds_only" then
+        return openGoldsOnly(State, profile)
+    end
+
+    -- fallback แบบง่าย ถ้าจะไปขยายของเก่าทีหลัง
+    return openGoldsOnly(State, profile)
+end
+
+local function usePortalGate(State)
+    local profile = getSelectedProfile(State)
+    local visual = getVisualRoot(profile)
+    if not visual then
+        log("portal visual not found")
+        return false
+    end
+
+    local attachment = getChildByPath(visual, profile.portalPath)
+    if not attachment then
+        log("portal attachment not found")
+        return false
+    end
+
+    local prompt = getPromptFromObject(attachment)
+    if not prompt then
+        log("portal prompt not found")
+        return false
+    end
+
+    local portalCF = getObjectCFrame(attachment)
+    if not portalCF then
+        log("portal cframe not found")
+        return false
+    end
+
     local root = getRoot()
-    local visuals = workspace:FindFirstChild("Raids_Visual")
-    if not visuals then return false end
 
-    local beforeFirstChestDelay = (cfg(State).beforeFirstChestDelay or 2.5)
-    local betweenChestDelay = (cfg(State).betweenChestDelay or 3.0)
-    local chestInteractDelay = (cfg(State).chestInteractDelay or 1.2)
-    local afterPressDelay = (cfg(State).afterPressDelay or 0.8)
+    -- ยืนหน้าพอร์ทัล
+    root.CFrame = portalCF * CFrame.new(0, 0, -3)
+    task.wait(0.2)
 
-    for _, v in ipairs(visuals:GetChildren()) do
-        if v.Name:find("_Server_") then
-            local rewards = v:FindFirstChild("Configs")
-                and v.Configs:FindFirstChild("Others")
-                and v.Configs.Others:FindFirstChild("Rewards")
+    local t = tick()
+    while not prompt.Enabled and tick() - t < 5 do
+        task.wait(0.1)
+    end
 
-            if not rewards then
-                return false
-            end
-
-            local golds = rewards:FindFirstChild("Golds")
-            local special = rewards:FindFirstChild("Special")
-
-            -- รอหลังมอนหมด ก่อนเริ่มเปิดกล่อง
-            task.wait(beforeFirstChestDelay)
-
-            local openedAny = false
-
-            if golds then
-                log("opening Golds chest...")
-                root.CFrame = golds.WorldPivot
-                task.wait(chestInteractDelay)
-                pressE()
-                task.wait(afterPressDelay)
-                openedAny = true
-            end
-
-            -- หน่วงระหว่าง 2 กล่อง
-            if golds and special then
-                task.wait(betweenChestDelay)
-            end
-
-            if special then
-                log("opening Special chest...")
-                root.CFrame = special.WorldPivot
-                task.wait(chestInteractDelay)
-                pressE()
-                task.wait(afterPressDelay)
-
-                -- กันกรณี prompt ขึ้นช้า / กดรอบแรกไม่ติด
-                root.CFrame = special.WorldPivot * CFrame.new(0, 0, -3)
-                task.wait(0.35)
-                pressE()
-                task.wait(afterPressDelay)
-
-                openedAny = true
-            end
-
-            -- ต้องพยายามเปิดครบก่อน ถึงถือว่าจบ reward step
-            if golds and not special then
-                log("Golds opened, Special not found")
-            elseif special and not golds then
-                log("Special opened, Golds not found")
-            elseif golds and special then
-                log("both reward chests processed")
-            else
-                log("no reward chests found")
-            end
-
-            return openedAny
+    if prompt.Enabled then
+        for _ = 1, 3 do
+            fireproximityprompt(prompt)
+            task.wait(0.15)
         end
+        return true
     end
 
     return false
 end
 
-local function usePortalGate()
-    local visuals = workspace:FindFirstChild("Raids_Visual")
-    if not visuals then return false end
+function AutoRaid.stopOtherModes(State)
+    State.toggles = State.toggles or {}
+    State.runtime = State.runtime or {}
 
-    local root = getRoot()
+    -- ปิด global boss ไว้ก่อนตามที่ต้องการ
+    State.toggles.globalBosses = false
+    State.runtime.pauseGlobalBoss = true
+    State.runtime.forceRaidOnly = true
 
-    for _, v in ipairs(visuals:GetChildren()) do
-        if v.Name:find("_Server_") then
-            local portal = v:FindFirstChild("Configs")
-                and v.Configs:FindFirstChild("Others")
-                and v.Configs.Others:FindFirstChild("Portal")
-                and v.Configs.Others.Portal:FindFirstChild("Travel")
-
-            local attachment = portal and portal:FindFirstChild("Attachment")
-            local prompt = attachment and attachment:FindFirstChildOfClass("ProximityPrompt")
-
-            if prompt and attachment then
-                local pos
-                if attachment:IsA("Attachment") and attachment.Parent and attachment.Parent:IsA("BasePart") then
-                    pos = attachment.WorldPosition
-                elseif attachment:IsA("BasePart") then
-                    pos = attachment.Position
-                end
-
-                if pos then
-                    root.CFrame = CFrame.new(pos + Vector3.new(0,0,3), pos)
-                    task.wait(0.2)
-                end
-
-                local t = tick()
-                while not prompt.Enabled and tick() - t < 5 do
-                    task.wait(0.1)
-                end
-
-                if prompt.Enabled then
-                    for _ = 1, 3 do
-                        fireproximityprompt(prompt)
-                        task.wait(0.15)
-                    end
-                    return true
-                end
-            end
-        end
-    end
-
-    return false
+    log("other modes stopped: globalBosses=false, pauseGlobalBoss=true")
 end
 
 function AutoRaid.runOnce(State)
+    State.runtime = State.runtime or {}
     State.runtime.raidBusy = true
 
-    if shouldAbortForGlobalBoss(State) then
-        exitRaidDirectForGlobalBoss(State)
-        State.runtime.raidBusy = false
-        return false, "global_boss_interrupt"
-    end
+    AutoRaid.stopOtherModes(State)
 
     if not AutoRaid.isInRaid() then
         enterRaid(State)
 
-        local ok = waitUntilInRaid(State, cfg(State).enterRaidTimeout)
+        local ok = waitUntilInRaid(State, cfg(State).enterRaidTimeout or 15)
         if not ok then
             State.runtime.raidBusy = false
             return false, "enter_raid_failed"
         end
     end
 
-    local hasEnemies, firstEnemyReason = waitForFirstEnemies(State, cfg(State).firstEnemyTimeout)
-    if not hasEnemies and firstEnemyReason == "global_boss_interrupt" then
-        exitRaidDirectForGlobalBoss(State)
+    local hasEnemies, firstEnemyReason = waitForFirstEnemies(State, cfg(State).firstEnemyTimeout or 20)
+    if not hasEnemies then
         State.runtime.raidBusy = false
-        return false, "global_boss_interrupt"
+        return false, firstEnemyReason or "first_enemy_failed"
     end
 
     local cleared, clearReason = clearAllEnemies(State)
-    if not cleared and clearReason == "global_boss_interrupt" then
-        exitRaidDirectForGlobalBoss(State)
+    if not cleared then
         State.runtime.raidBusy = false
-        return false, "global_boss_interrupt"
+        return false, clearReason or "clear_failed"
     end
 
-    if shouldAbortForGlobalBoss(State) then
-        exitRaidDirectForGlobalBoss(State)
-        State.runtime.raidBusy = false
-        return false, "global_boss_interrupt"
-    end
-
-    local openedRewards = openAllChestsDirect(State)
+    local openedRewards = openRewards(State)
     if not openedRewards then
         State.runtime.raidBusy = false
         return false, "open_rewards_failed"
     end
 
-    task.wait(0.9)
+    task.wait(1.0)
 
-    if shouldAbortForGlobalBoss(State) then
-        exitRaidDirectForGlobalBoss(State)
+    local usedPortal = usePortalGate(State)
+    if not usedPortal then
         State.runtime.raidBusy = false
-        return false, "global_boss_interrupt"
+        return false, "use_portal_failed"
     end
 
-    usePortalGate()
     task.wait(1.5)
-
     State.runtime.raidBusy = false
     return true, nil
+end
+
+function AutoRaid.run(State)
+    AutoRaid.stopOtherModes(State)
+
+    while State.enabled do
+        local ok, reason = AutoRaid.runOnce(State)
+        if not ok then
+            log("runOnce failed:", reason)
+            task.wait(1.5)
+        else
+            task.wait(cfg(State).loopDelay or 1.0)
+        end
+    end
 end
 
 return AutoRaid

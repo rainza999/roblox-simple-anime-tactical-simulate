@@ -4,13 +4,18 @@ local State = {
     toggles = {
         raids = true,
         bossFight = false,
-        globalBosses = true,
+        globalBosses = false,
     },
 
-    raid = {
-        map = "Jujutsu Highschool",
+    -- raid = {
+    --     map = "Jujutsu Highschool",
+    --     difficulty = "Nightmare",
+    --     podName = "Pod_01",
+    -- },
+        raid = {
+        profile = "spring_new",
+        map = "Spring Dungeons",
         difficulty = "Nightmare",
-        podName = "Pod_01",
     },
 
     config = {

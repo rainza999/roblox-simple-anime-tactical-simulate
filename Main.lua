@@ -1,4 +1,4 @@
-warn("### RAID + BOSS MAIN BUILD V7.7 ###")
+warn("### RAID + BOSS MAIN BUILD V7.8 ###")
 
 local BASE = "https://raw.githubusercontent.com/rainza999/roblox-simple-anime-tactical-simulate/main/"
 local ts = tostring(os.time())
@@ -10,12 +10,25 @@ local AutoRaid = loadstring(game:HttpGet(BASE .. "AutoRaid.lua?t=" .. ts))()
 local AutoBoss = loadstring(game:HttpGet(BASE .. "AutoBoss.lua?t=" .. ts))()
 local AutoGlobalBoss = loadstring(game:HttpGet(BASE .. "AutoGlobalBoss.lua?t=" .. ts))()
 
+-- บังคับปิด GlobalBoss ชั่วคราว
+State.toggles = State.toggles or {}
+State.runtime = State.runtime or {}
+
+State.toggles.globalBosses = false
+State.runtime.pauseGlobalBoss = true
+State.runtime.forceRaidOnly = true
+State.runtime.domainBirdcageCount = 0
+
 local function refreshDomainBirdcage(reason)
- local count = AutoGlobalBoss.getDomainBirdcageAmount()
- State.runtime.domainBirdcageCount = count
- UI.updateDomainBirdcage(count)
- warn("[MAIN] DomainBirdcage refreshed:", count, "reason:", reason or "unknown")
- return count
+--  local count = AutoGlobalBoss.getDomainBirdcageAmount()
+--  State.runtime.domainBirdcageCount = count
+--  UI.updateDomainBirdcage(count)
+--  warn("[MAIN] DomainBirdcage refreshed:", count, "reason:", reason or "unknown")
+--  return count
+    State.runtime.domainBirdcageCount = 0
+    UI.updateDomainBirdcage(0)
+    warn("[MAIN] DomainBirdcage skipped (raid-only mode), reason:", reason or "unknown")
+    return 0
 end
 
 
@@ -23,17 +36,25 @@ UI.init(State)
 refreshDomainBirdcage("init")
 
 State.onDomainBirdcageChanged = function(count, reason)
- State.runtime.domainBirdcageCount = count or 0
- UI.updateDomainBirdcage(State.runtime.domainBirdcageCount)
- warn("[MAIN] DomainBirdcage callback:", State.runtime.domainBirdcageCount, "reason:", reason or "unknown")
+--  State.runtime.domainBirdcageCount = count or 0
+--  UI.updateDomainBirdcage(State.runtime.domainBirdcageCount)
+--  warn("[MAIN] DomainBirdcage callback:", State.runtime.domainBirdcageCount, "reason:", reason or "unknown")
+-- กัน callback เก่ามายุ่ง
+    State.runtime.domainBirdcageCount = 0
+    UI.updateDomainBirdcage(0)
+    warn("[MAIN] DomainBirdcage callback skipped (raid-only mode), reason:", reason or "unknown")
 end
 
+-- State.onGlobalBossFinished = function()
+--  refreshDomainBirdcage("global_boss_finished")
+-- end
 State.onGlobalBossFinished = function()
- refreshDomainBirdcage("global_boss_finished")
+    warn("[MAIN] onGlobalBossFinished skipped (raid-only mode)")
 end
 
 State.shouldInterruptRaidForGlobalBoss = function()
- return AutoGlobalBoss.shouldInterruptRaid(State)
+--  return AutoGlobalBoss.shouldInterruptRaid(State)
+    return false
 end
 
 getgenv().RaidBossMainRunning = true
@@ -68,14 +89,14 @@ task.spawn(function()
 
     refreshDomainBirdcage("loop_tick")
 
-    -- 1) GlobalBoss มาก่อน ถ้ามี portal หรือถ้าถึง threshold
-    if AutoGlobalBoss.shouldForceGlobalBoss(State) then
-        log("global boss priority -> go global now")
-        AutoGlobalBoss.runOnce(State)
-        refreshDomainBirdcage("after_global_priority")
-        task.wait(0.2)
-        continue
-    end
+    -- -- 1) GlobalBoss มาก่อน ถ้ามี portal หรือถ้าถึง threshold
+    -- if AutoGlobalBoss.shouldForceGlobalBoss(State) then
+    --     log("global boss priority -> go global now")
+    --     AutoGlobalBoss.runOnce(State)
+    --     refreshDomainBirdcage("after_global_priority")
+    --     task.wait(0.2)
+    --     continue
+    -- end
 
   -- 2) ค่อย raid
   if State.toggles.raids then
