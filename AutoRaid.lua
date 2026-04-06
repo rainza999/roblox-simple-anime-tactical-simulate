@@ -79,10 +79,17 @@ local function getByteNetReliable()
     return ReplicatedStorage:WaitForChild("ByteNetReliable")
 end
 
-local function getRaidPartyByName(name)
+local function getRaidParty(profile)
     local shared = ReplicatedStorage:WaitForChild("Shared")
     local parties = shared:WaitForChild("Parties")
-    return parties:WaitForChild(name)
+
+    -- ถ้า AUTO → ใช้ชื่อตัวเอง
+    if profile.partyOwner == "AUTO" then
+        return parties:WaitForChild(LocalPlayer.Name)
+    end
+
+    -- ถ้าไม่ใช่ → ใช้ค่าที่กำหนด
+    return parties:WaitForChild(profile.partyOwner)
 end
 
 local PROFILES = {
@@ -93,7 +100,7 @@ local PROFILES = {
         difficultyLobbyKey = "Diffculty_Nightmare",
 
         -- คนที่เป็นเจ้าของ party / visual server name
-        partyOwner = "RainFatherReal",
+        partyOwner = "AUTO",
         visualServerName = "Spring Dungeons_Server_RainFatherReal",
 
         -- จุดวาปก่อนกดลงดัน
@@ -285,7 +292,7 @@ local function enterRaid_newSpring(State, profile)
     end
 
     -- step 1: เลือก party / diff หน้า lobby
-    local partyObj = getRaidPartyByName(profile.partyOwner)
+    local partyObj = getRaidPartyByName(profile)
     getRaidLobbyRemote():FireServer(partyObj, profile.difficultyLobbyKey)
     task.wait(0.35)
 
